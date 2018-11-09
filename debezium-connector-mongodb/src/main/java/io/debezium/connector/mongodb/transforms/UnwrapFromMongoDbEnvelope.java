@@ -110,12 +110,22 @@ public class UnwrapFromMongoDbEnvelope<R extends ConnectRecord<R>> implements Tr
             .withDescription("Delimiter to concat between field names from the input record when generating field names for the"
                     + "output record.");
 
+    private static final Field APPEND_OPERATION = Field.create("append.mongo.operation")
+            .withDisplayName("Append the mongo operation into the schema name")
+            .withType(ConfigDef.Type.BOOLEAN)
+            .withWidth(ConfigDef.Width.SHORT)
+            .withImportance(ConfigDef.Importance.LOW)
+            .withDefault(false)
+            .withDescription("Appends the mongo operation as in {@link FieldName#OPERATION operation} to the schema name metadata");
+
     private final ExtractField<R> afterExtractor = new ExtractField.Value<R>();
     private final ExtractField<R> patchExtractor = new ExtractField.Value<R>();
     private final ExtractField<R> keyExtractor = new ExtractField.Key<R>();
 
     private MongoDataConverter converter;
     private final Flatten<R> recordFlattener = new Flatten.Value<R>();
+
+    private boolean appendMongoOperationIntoSchema;
 
     private boolean flattenStruct;
     private String delimiter;
@@ -126,6 +136,12 @@ public class UnwrapFromMongoDbEnvelope<R extends ConnectRecord<R>> implements Tr
         if (newValueSchemaName.endsWith(".Envelope")) {
             newValueSchemaName = newValueSchemaName.substring(0, newValueSchemaName.length() - 9);
         }
+
+        if (appendMongoOperationIntoSchema) {
+            newValueSchemaName = newValueSchemaName.concat(".")
+                    .concat(((Struct) r.value()).get("op").toString());
+        }
+
         SchemaBuilder valueSchemaBuilder = SchemaBuilder.struct().name(newValueSchemaName);
         SchemaBuilder keySchemabuilder = SchemaBuilder.struct();
         BsonDocument valueDocument = null;
@@ -235,13 +251,15 @@ public class UnwrapFromMongoDbEnvelope<R extends ConnectRecord<R>> implements Tr
     @Override
     public void configure(final Map<String, ?> map) {
         final Configuration config = Configuration.from(map);
-        final Field.Set configFields = Field.setOf(ARRAY_ENCODING, FLATTEN_STRUCT, DELIMITER);
+        final Field.Set configFields = Field.setOf(ARRAY_ENCODING, FLATTEN_STRUCT, DELIMITER, APPEND_OPERATION);
 
         if (!config.validateAndRecord(configFields, LOGGER::error)) {
             throw new ConnectException("Unable to validate config.");
         }
 
         converter = new MongoDataConverter(ArrayEncoding.parse(config.getString(ARRAY_ENCODING)));
+
+        appendMongoOperationIntoSchema = config.getBoolean(APPEND_OPERATION);
 
         flattenStruct = config.getBoolean(FLATTEN_STRUCT);
         delimiter = config.getString(DELIMITER);
