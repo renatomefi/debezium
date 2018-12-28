@@ -40,7 +40,7 @@ public class MongoClients {
      * Configures and builds a ConnectionPool.
      */
     public static class Builder {
-        private final List<MongoCredential> credentials = new CopyOnWriteArrayList<>();
+        private MongoCredential credential;
         private final MongoClientOptions.Builder optionBuilder = MongoClientOptions.builder();
 
         /**
@@ -50,7 +50,7 @@ public class MongoClients {
          * @return this builder object so methods can be chained; never null
          */
         public Builder withCredential(MongoCredential credential) {
-            if (credential != null) credentials.add(credential);
+            this.credential = credential;
             return this;
         }
 
@@ -69,20 +69,18 @@ public class MongoClients {
          * @return the new client pool; never null
          */
         public MongoClients build() {
-            return new MongoClients(optionBuilder.build(), credentials);
+            return new MongoClients(optionBuilder.build(), this.credential);
         }
     }
 
     private final Map<ServerAddress, MongoClient> directConnections = new ConcurrentHashMap<>();
     private final Map<List<ServerAddress>, MongoClient> connections = new ConcurrentHashMap<>();
-    private final List<MongoCredential> credentials = new CopyOnWriteArrayList<>();
+    private final MongoCredential credentials;
     private final MongoClientOptions options;
 
-    private MongoClients(MongoClientOptions options, List<MongoCredential> credentials) {
+    private MongoClients(MongoClientOptions options, MongoCredential credentials) {
         this.options = options;
-        if (credentials != null) {
-            credentials.forEach(this.credentials::add);
-        }
+        this.credentials = credentials;
     }
     
     /**
