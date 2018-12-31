@@ -7,8 +7,10 @@ package io.debezium.connector.mongodb;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
@@ -16,6 +18,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import io.debezium.config.Field;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +52,7 @@ public class ConnectionContext implements AutoCloseable {
     protected final ReplicaSets replicaSets;
     protected final DelayStrategy primaryBackoffStrategy;
     protected final boolean useHostsAsSeeds;
+    private final Map<String, String> originalSystemProperties = new HashMap<>();
 
     /**
      * @param config the configuration
@@ -62,6 +66,14 @@ public class ConnectionContext implements AutoCloseable {
         final String adminDbName = ReplicaSetDiscovery.ADMIN_DATABASE_NAME;
         final boolean useSSL = config.getBoolean(MongoDbConnectorConfig.SSL_ENABLED);
         final boolean sslAllowInvalidHostnames = config.getBoolean(MongoDbConnectorConfig.SSL_ALLOW_INVALID_HOSTNAMES);
+
+        if (useSSL) {
+            // Set the System properties for SSL for the MongoDB driver ...
+            setSystemProperty("javax.net.ssl.keyStore", MongoDbConnectorConfig.SSL_KEYSTORE, true);
+            setSystemProperty("javax.net.ssl.keyStorePassword", MongoDbConnectorConfig.SSL_KEYSTORE_PASSWORD, false);
+            setSystemProperty("javax.net.ssl.trustStore", MongoDbConnectorConfig.SSL_TRUSTSTORE, true);
+            setSystemProperty("javax.net.ssl.trustStorePassword", MongoDbConnectorConfig.SSL_KEYSTORE_PASSWORD, false);
+        }
 
         // Set up the client pool so that it ...
         MongoClients.Builder clientBuilder = MongoClients.create();
@@ -434,5 +446,30 @@ public class ConnectionContext implements AutoCloseable {
             return pool.clientFor(primaryAddress);
         }
         return null;
+    }
+
+    protected void setSystemProperty(String property, Field field, boolean showValueInError) {
+        String value = config.getString(field);
+        if (value != null) {
+            value = value.trim();
+            String existingValue = System.getProperty(property);
+            if (existingValue == null) {
+                // There was no existing property ...
+                String existing = System.setProperty(property, value);
+                originalSystemProperties.put(property, existing); // the existing value may be null
+                logger.info(String.format("Setting System property '%s' with '%s'.", property, showValueInError ? value : "*******"));
+            } else {
+                existingValue = existingValue.trim();
+                if (!existingValue.equalsIgnoreCase(value)) {
+                    // There was an existing property, and the value is different ...
+                    String msg = String.format("System or JVM property '%s' is already defined, but the configuration property '%s' defines a different value", property, field.name());
+                    if (showValueInError) {
+                        msg = String.format("System or JVM property '%s' is already defined as %s, but the configuration property '%s' defines a different value '%s'", property, existingValue, field.name(), value);
+                    }
+                    throw new ConnectException(msg);
+                }
+                // Otherwise, there was an existing property, and the value is exactly the same (so do nothing!)
+            }
+        }
     }
 }
